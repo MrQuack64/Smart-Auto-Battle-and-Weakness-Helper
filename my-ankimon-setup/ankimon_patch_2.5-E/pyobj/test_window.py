@@ -659,7 +659,7 @@ class TestWindow(QWidget):
     _GIF_MAX = {"enemy": (190, 140), "main": (220, 160)}
     # The PNGs carry transparent padding under the feet; the tight-cropped GIFs
     # don't, so at the PNG anchor they sank into the weakness tag / message box.
-    _GIF_LIFT = {"enemy": 24, "main": 22}
+    _GIF_LIFT = {"enemy": 40, "main": 40}
 
     def _gif_enabled(self):
         try:
