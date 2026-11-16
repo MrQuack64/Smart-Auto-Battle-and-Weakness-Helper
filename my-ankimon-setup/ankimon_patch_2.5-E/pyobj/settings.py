@@ -1,0 +1,545 @@
+import json
+import os
+import shutil
+from pathlib import Path
+from ..resources import user_path
+from ..services import services
+
+DEFAULT_CONFIG = {
+    "battle.automatic_battle": 0,
+    "battle.auto_catch_legendary": True,
+    "battle.auto_catch_mythical": True,
+    "battle.auto_catch_ultra": True,
+    "battle.auto_catch_starter": True,
+    "battle.auto_catch_mega": True,
+    "battle.auto_catch_gmax": True,
+    "battle.auto_catch_regional": True,
+    "battle.auto_catch_wishlist": [25, 133],
+    "battle.cards_per_round": 2,
+    "battle.daily_average": 100,
+    "battle.card_max_time": 60,
+    "battle.review_based_damage": True,
+    "battle.ignore_learning_cards": False,
+    "evolution.friendship_time_enabled": True,
+    "evolution.day_start_hour": 6,
+    "evolution.night_start_hour": 18,
+    "evolution.timezone_auto": True,
+    "evolution.timezone_offset": 0.0,
+    "controls.pokemon_buttons": True,
+    "controls.defeat_key": "5",
+    "controls.catch_key": "6",
+    "controls.team_cycle_key": "9",
+    "controls.team_cycle_count": 3,
+    "controls.key_for_opening_closing_ankimon": "Ctrl+Shift+P",
+    # Derived from controls.move_selection_mode (True only for mode 1); kept
+    # because the XP penalty and mobile sync still read it.
+    "controls.allow_to_choose_moves": False,
+    # 0 = random move, 1 = choose the move yourself, 2 = Smart Auto Battle.
+    "controls.move_selection_mode": 0,
+    # Smart Auto Battle level balancing: only send out team members within
+    # this many levels of the lowest one. 0 = off.
+    "battle.team_level_gap": 5,
+    "gui.animate_time": True,
+    "gui.gif_in_collection": True,
+    "gui.show_sprites_across_ankimon": True,
+    "gui.hud_styling": True,
+    "gui.pop_up_dialog_message_on_defeat": False,
+    "gui.pop_up_dialog_message_on_encounter": False,
+    "gui.pop_up_dialog_message_on_item": True,
+    "gui.review_hp_bar_thickness": 2,
+    "gui.reviewer_image_gif": False,
+    "gui.ankimon_window_gif": True,
+    "gui.reviewer_text_message_box": True,
+    "gui.reviewer_text_message_box_time": 3,
+    "gui.show_mainpkmn_in_reviewer": 1,
+    "gui.hud_hidden_on_startup": False,
+    "gui.team_deck_view": True,
+    "gui.view_main_front": True,
+    "gui.xp_bar_location": 2,
+    "gui.hud_player_sprite": True,
+    "gui.hud_enemy_sprite": True,
+    "gui.hud_xp_bar": True,
+    "gui.hud_xp_values": False,
+    "gui.hud_hp_bars": True,
+    "gui.hud_hp_text": True,
+    "gui.hud_pokemon_id": True,
+    "gui.hud_pokemon_gen": True,
+    "gui.hud_pokemon_lvl": True,
+    "gui.hud_pokemon_name": True,
+    "gui.hud_status_badge": True,
+    "gui.hud_owned_indicator": True,
+    "gui.hud_enemy_shiny_indicator": True,
+    "gui.hud_player_shiny_indicator": True,
+    "audio.sound_effects": False,
+    "audio.sounds": True,
+    "audio.battle_sounds": False,
+    "audio.volume": 0.5,
+    "misc.gen1": True,
+    "misc.gen2": True,
+    "misc.gen3": True,
+    "misc.gen4": True,
+    "misc.gen5": True,
+    "misc.gen6": True,
+    "misc.gen7": True,
+    "misc.gen8": True,
+    "misc.gen9": False,
+    "misc.active_region": None,
+    "misc.remove_level_cap": False,
+    "misc.language": 9,
+    "misc.ssh": True,
+    "misc.leaderboard": False,
+    "misc.YouShallNotPass_Ankimon_News": False,
+    "misc.show_tip_on_startup": True,  # Added default for Tip of the Day
+    "misc.discord_rich_presence": False,
+    "misc.discord_rich_presence_text": 1,
+    "misc.developer_mode": False,
+    "trainer.name": "Ash",
+    "trainer.sprite": "ash",
+    "trainer.id": 0,
+    "trainer.cash": 0,
+    # "classic" = pre-Gen-6 behavior: one chosen holder splits XP 50/50 with
+    # the active Pokémon. "oras" = Gen 6+ Key Item behavior: the active
+    # Pokémon keeps full XP and the whole active team also earns a full
+    # share, no holder to pick. Defaults to "classic" so existing saves keep
+    # their current behavior until the player opts in.
+    "trainer.xp_share_mode": "classic",
+    "trainer.cash_reward_amount": 40,
+    "trainer.cash_reward_interval": 10,
+    "trainer.cash_earned_today": 0,
+    "trainer.last_cash_reward_date": "",
+    "trainer.mobile_cash_earned_today": 0,
+    "trainer.last_mobile_cash_reward_date": "",
+    "trainer.mobile_reviews_resolved_since_payout": 0,
+    "trainer.level": 0,
+    "trainer.xp": 0,
+    "mobile.enabled": True,
+    "mobile.resolution_mode": "manual",
+    "mobile.inactive_companions": [],
+    "leaderboard.username": "",
+    "leaderboard.api_key": "",
+}
+
+HUD_TOGGLE_AUTO_SYNC_KEYS = (
+    "gui.hud_player_sprite",
+    "gui.hud_enemy_sprite",
+    "gui.hud_xp_bar",
+    "gui.hud_xp_values",
+    "gui.hud_hp_bars",
+    "gui.hud_status_badge",
+    "gui.hud_owned_indicator",
+    "gui.hud_enemy_shiny_indicator",
+    "gui.hud_player_shiny_indicator",
+)
+
+
+def _truthy(value):
+    return value is True or str(value).strip().lower() in ("true", "1")
+
+
+def sync_move_selection(config, previous=None):
+    """Keep ``controls.move_selection_mode`` (0/1/2) and the legacy
+    ``controls.allow_to_choose_moves`` flag consistent. Returns True if config
+    was changed.
+
+    First run: derive the mode from the old settings (the short-lived
+    ``battle.smart_move_selection`` = 1 -> 2, Allow Choosing Moves on -> 1,
+    else 0).
+
+    ``previous`` is the config before this save. When only the legacy flag
+    was changed (e.g. from the older settings window), the mode follows it:
+    on -> 1, off -> back to 0 if the mode was 1.
+    """
+    changed = False
+    key = "controls.move_selection_mode"
+    legacy = "controls.allow_to_choose_moves"
+    if previous is not None and key in config and previous is not config:
+        flag_changed = _truthy(config.get(legacy, False)) != _truthy(
+            previous.get(legacy, False)
+        )
+        mode_changed = str(config.get(key)) != str(previous.get(key))
+        if flag_changed and not mode_changed:
+            if _truthy(config.get(legacy, False)):
+                config[key] = 1
+            elif str(config.get(key)) == "1":
+                config[key] = 0
+            changed = True
+    if key not in config or config[key] is None:
+        if str(config.get("battle.smart_move_selection", 0)).strip() == "1":
+            config[key] = 2
+        elif _truthy(config.get("controls.allow_to_choose_moves", False)):
+            config[key] = 1
+        else:
+            config[key] = 0
+        changed = True
+    try:
+        mode = int(config[key])
+    except (TypeError, ValueError):
+        mode = 0
+    mode = mode if mode in (0, 1, 2) else 0
+    if config[key] != mode:
+        config[key] = mode
+        changed = True
+    allow = mode == 1
+    if config.get("controls.allow_to_choose_moves") is not allow:
+        config["controls.allow_to_choose_moves"] = allow
+        changed = True
+    return changed
+
+
+class Settings:
+    def __init__(self):
+        self.config = self.load_config()
+        self.compute_gui_config()
+
+    def get_description(self, key):
+        return self.descriptions.get(key, "No description available.")
+
+    def load_config(self):
+        config = {}
+
+        # First, try to load from database
+        if services.db is not None:
+            try:
+                if services.db.has_config():
+                    config = services.db.get_all_config()
+                    self._apply_type_coercion(config)
+            except Exception as e:
+                print(f"Ankimon: Error loading config from database: {e}")
+
+        # If no config in database, fall back to config.obf for migration
+        if not config:
+            obfuscated_config_path = user_path / "config.obf"
+            if obfuscated_config_path.is_file():
+                try:
+                    from ..pyobj.ankimon_sync import AnkimonDataSync
+
+                    sync_handler = AnkimonDataSync()
+
+                    with open(obfuscated_config_path, "r", encoding="utf-8") as f:
+                        obfuscated_str = f.read()
+                    config = sync_handler._deobfuscate_data(obfuscated_str)
+
+                    # Migration: remove legacy keys
+                    if "items" in config and isinstance(config["items"], list):
+                        del config["items"]
+                    if "trainer.team" in config:
+                        del config["trainer.team"]
+
+                    self._apply_type_coercion(config)
+
+                    # Migrate config to database
+                    if services.db is not None:
+                        try:
+                            services.db.save_all_config(config)
+                            print(
+                                "Ankimon: Migrated config from config.obf to database"
+                            )
+
+                            # Archive config.obf after successful migration
+                            try:
+                                backup_dir = user_path / "json"
+                                backup_dir.mkdir(exist_ok=True)
+                                dest = backup_dir / "config.obf"
+                                shutil.move(str(obfuscated_config_path), str(dest))
+                                print(f"Ankimon: Archived config.obf to {backup_dir}")
+                            except Exception as e:
+                                print(f"Ankimon: Failed to archive config.obf: {e}")
+
+                        except Exception as e:
+                            print(f"Ankimon: Failed to migrate config to database: {e}")
+
+                except Exception as e:
+                    print(
+                        f"Ankimon: Error loading config from config.obf: {e}. Falling back to default config."
+                    )
+                    config = {}
+
+        # Normalize a DB scalar-encoding artifact: the config table stores
+        # plain scalars via str(), so a persisted Python None comes back as
+        # the string "None". Restore a real None for keys whose schema default
+        # is None (misc.active_region) so "unset" survives a save/load
+        # round-trip instead of becoming a truthy string.
+        for key, default in DEFAULT_CONFIG.items():
+            if default is None and config.get(key) == "None":
+                config[key] = None
+
+        # gui.styling_in_reviewer was renamed to gui.hud_styling when the
+        # setting moved into the HUD Element Toggles group. Carry the stored
+        # value across once; the new key is authoritative from then on, so a
+        # legacy row that somehow reappears can never overwrite it.
+        styling_migrated = "gui.styling_in_reviewer" in config
+        if styling_migrated:
+            legacy_styling = config.pop("gui.styling_in_reviewer")
+            config.setdefault("gui.hud_styling", legacy_styling)
+
+        # Ensure all default settings are present. A stored value of ``None``
+        # is treated as "unset" and reseeded from the DEFAULT_CONFIG value —
+        # except for keys whose schema default is itself None: reseeding those
+        # would flag the config as modified (and rewrite it to the DB) on
+        # every single load.
+        move_mode_migrated = sync_move_selection(config)
+
+        modified = styling_migrated or move_mode_migrated
+        for key in DEFAULT_CONFIG:
+            if key not in config or (
+                config[key] is None and DEFAULT_CONFIG[key] is not None
+            ):
+                modified = True
+                config[key] = DEFAULT_CONFIG[key]
+
+        if modified:
+            # Persist schema/default migration without triggering behavioral
+            # side effects such as HUD autosync. Existing user HUD preferences
+            # must survive the introduction of a new master visibility key.
+            self.save_config(config, apply_hud_autosync=False)
+
+        # Drop the renamed key's row, but only once gui.hud_styling is really
+        # in the store. save_all_config upserts and never deletes, so a row left
+        # behind is read back on every load: it would re-seed the migration
+        # forever and revert the user's own Styling choice at every startup.
+        # save_config swallows a failed DB write, though, so "it returned" is
+        # not "it persisted" — deleting on a failed save would destroy the
+        # stored value outright, where leaving the row simply retries the
+        # migration on the next load.
+        if styling_migrated and services.db is not None:
+            try:
+                if services.db.get_config_value("gui.hud_styling") is not None:
+                    services.db.delete_config_value("gui.styling_in_reviewer")
+            except Exception as e:
+                print(
+                    "Ankimon: Failed to delete legacy config key "
+                    f"'gui.styling_in_reviewer': {e}"
+                )
+
+        # Preserve the identity of ``self.config`` across (re)loads: external
+        # holders of the dict keep observing updates instead of a stale rebind.
+        if not hasattr(self, "config"):
+            self.config = {}
+        if self.config is not config:
+            self.config.clear()
+            self.config.update(config)
+        self.compute_gui_config()
+        return self.config
+
+    def _apply_type_coercion(self, config):
+        """Apply type coercion to config values that need to be integers."""
+        keys_to_coerce_to_int = [
+            "battle.automatic_battle",
+            "controls.move_selection_mode",
+            "battle.team_level_gap",
+            "battle.daily_average",
+            "gui.reviewer_text_message_box_time",
+            "gui.xp_bar_location",
+            "misc.discord_rich_presence_text",
+            "trainer.cash_reward_amount",
+            "trainer.cash_reward_interval",
+            "trainer.cash_earned_today",
+            "trainer.mobile_cash_earned_today",
+            "controls.team_cycle_count",
+        ]
+        for key in keys_to_coerce_to_int:
+            if key in config and isinstance(config[key], str):
+                try:
+                    config[key] = int(config[key])
+                except ValueError:
+                    print(
+                        f"Ankimon: Warning: Could not convert '{config[key]}' for key '{key}' to int."
+                    )
+
+    def _apply_hud_toggle_autosync(
+        self, config, previous_value=None, explicit_overrides=None
+    ):
+        """When the main sprite visibility setting changes, mirror that choice
+        into the reviewer HUD toggles for the listed elements.
+
+        The global setting is authoritative for HUD toggles the user did not
+        explicitly override in the same save transaction.
+        """
+        if not isinstance(config, dict):
+            return []
+
+        main_key = "gui.show_sprites_across_ankimon"
+        if main_key not in config:
+            return []
+
+        current_value = config.get(main_key, True)
+
+        # Autosync is a change-side effect, not a migration/default-seeding
+        # side effect. A missing previous value means there is no user-initiated
+        # transition to mirror.
+        if previous_value is None or previous_value == current_value:
+            return []
+
+        explicit_overrides = set(explicit_overrides or ())
+
+        changed_keys = []
+        for key in HUD_TOGGLE_AUTO_SYNC_KEYS:
+            if key in explicit_overrides:
+                continue
+            if config.get(key, True) != current_value:
+                config[key] = current_value
+                changed_keys.append(key)
+
+        return changed_keys
+
+    def save_config(
+        self, config, explicit_overrides=None, apply_hud_autosync=True
+    ):
+        previous_value = None
+        if hasattr(self, "config") and self.config is not None:
+            previous_value = self.config.get("gui.show_sprites_across_ankimon", True)
+
+        if apply_hud_autosync:
+            self._apply_hud_toggle_autosync(
+                config, previous_value, explicit_overrides
+            )
+        sync_move_selection(config, previous=getattr(self, "config", None))
+
+        # 1. Always save to database if available
+        if services.db is not None:
+            try:
+                services.db.save_all_config(config)
+            except Exception as e:
+                print(f"Ankimon: Failed to save config to database: {e}")
+
+        # 2. Also save to obfuscated file if it exists (legacy support).
+        # Preserve the identity of ``self.config`` (clear/update in place) so
+        # external holders of the dict observe the update across reloads.
+        if not hasattr(self, "config"):
+            self.config = {}
+        if self.config is not config:
+            self.config.clear()
+            self.config.update(config)
+        self._save_legacy_obf_if_present()
+        self.compute_gui_config()
+
+    def _save_legacy_obf_if_present(self):
+        """Mirror self.config into a legacy config.obf, only if one still exists
+        (pre-migration profiles). Migrated profiles archived it, so this is a no-op.
+        Note: once moved to the archive folder this file is no longer found here."""
+        obfuscated_config_path = user_path / "config.obf"
+        if not obfuscated_config_path.is_file():
+            return
+        try:
+            # Imported lazily, and only when a legacy config.obf is present, so this
+            # module never drags in ankimon_sync (and thus aqt) at import time.
+            from ..pyobj.ankimon_sync import AnkimonDataSync
+
+            sync_handler = AnkimonDataSync()  # Re-use the obfuscation logic
+            obfuscated_str = sync_handler._obfuscate_data(self.config)
+            warning_message = "WARNING: This file contains important user data. Do not delete or modify this file. Deleting or modifying this file can lead to data loss in the Ankimon addon.\n---"
+            file_content = warning_message + obfuscated_str
+            with open(obfuscated_config_path, "w", encoding="utf-8") as f:
+                f.write(file_content)
+        except Exception as e:
+            print(f"Ankimon: Could not save obfuscated config: {e}")
+
+    def get(self, key, default=None):
+        # Resolve a None (unset) value to the caller default, then to the schema
+        # default in DEFAULT_CONFIG, so newly-added keys always yield a value.
+        value = self.config.get(key)
+        if value is not None:
+            return value
+        if default is not None:
+            return default
+        return DEFAULT_CONFIG.get(key)
+
+    def set(self, key, value, explicit_overrides=None):
+        previous_value = self.config.get("gui.show_sprites_across_ankimon", True)
+        self.config[key] = value
+        changed_keys = self._apply_hud_toggle_autosync(
+            self.config, previous_value, explicit_overrides
+        )
+
+        # Persist ONLY the changed key. The previous implementation re-saved the
+        # entire config (~60 rows + a commit) on every set; the battle loop awards
+        # cash per review, so a single battle rewrote all of config dozens of times.
+        if services.db is not None:
+            try:
+                services.db.set_config_value(key, value)
+                for changed_key in changed_keys:
+                    services.db.set_config_value(changed_key, self.config[changed_key])
+            except Exception as e:
+                print(f"Ankimon: Failed to save config key '{key}': {e}")
+        else:
+            # No DB yet (very early boot / legacy) — fall back to the full save.
+            self.save_config(self.config, explicit_overrides)
+            return
+        self._save_legacy_obf_if_present()
+        self.compute_gui_config()
+
+    def compute_gui_config(self):
+        # Manage conditional GUI settings
+        config = self.config
+        sound_effects = config.get("audio.sound_effects", False)
+
+        view_main_front = config.get("gui.view_main_front", True)
+        reviewer_image_gif = config.get("gui.reviewer_image_gif", False)
+        self.view_main_front = -1 if view_main_front and reviewer_image_gif else 1
+
+        animate_time = config.get("gui.animate_time", False)
+        self.animate_time = 0.8 if animate_time else 0
+
+        xp_bar_location = config.get("gui.xp_bar_location", 0)
+        xp_bar_config = config.get("gui.hud_xp_bar", True)
+        if xp_bar_config:
+            if xp_bar_location == 1:
+                self.xp_bar_location = "top"
+                self.xp_bar_spacer = 0
+            elif xp_bar_location == 2:
+                self.xp_bar_location = "bottom"
+                self.xp_bar_spacer = 20
+        else:
+            self.xp_bar_spacer = 0
+
+        hp_bar_config = config.get("gui.hud_hp_bars", True)
+        if not hp_bar_config:
+            self.hp_only_spacer = 15
+            self.wild_hp_spacer = 65
+        else:
+            self.hp_only_spacer = 0
+            self.wild_hp_spacer = 0
+
+    def compute_special_variable(self, key):
+        # Dynamically compute and return the requested GUI variable
+        if key == "view_main_front":
+            view_main_front = self.config.get("gui.view_main_front", True)
+            reviewer_image_gif = self.config.get("gui.reviewer_image_gif", False)
+            return -1 if view_main_front and reviewer_image_gif else 1
+
+        elif key == "animate_time":
+            animate_time = self.config.get("gui.animate_time", False)
+            return 0.8 if animate_time else 0
+
+        elif key == "xp_bar_location":
+            xp_bar_config = self.config.get("gui.hud_xp_bar", True)
+            xp_bar_location = int(self.config.get("gui.xp_bar_location", 2))
+
+            if xp_bar_config:
+                if xp_bar_location == 1:
+                    return "top"
+                elif xp_bar_location == 2:
+                    return "bottom"
+            return None  # Default when XP bar is disabled
+
+        elif key == "xp_bar_spacer":
+            xp_bar_config = self.config.get("gui.hud_xp_bar", True)
+            xp_bar_location = self.config.get("gui.xp_bar_location", 0)
+
+            if xp_bar_config:
+                if xp_bar_location == 2:  # Bottom
+                    return 20
+                elif xp_bar_location == 1:  # Top
+                    return 0
+            return 0  # Default spacer
+
+        elif key == "hp_only_spacer":
+            hp_bar_config = self.config.get("gui.hud_hp_bars", True)
+            return 15 if not hp_bar_config else 0
+
+        elif key == "wild_hp_spacer":
+            hp_bar_config = self.config.get("gui.hud_hp_bars", True)
+            return 65 if not hp_bar_config else 0
+
+        else:
+            raise ValueError(f"Unknown key: {key}")
