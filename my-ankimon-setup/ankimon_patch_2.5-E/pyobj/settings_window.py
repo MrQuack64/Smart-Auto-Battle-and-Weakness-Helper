@@ -379,7 +379,7 @@ class SettingsWindow(QMainWindow):
             "Battle": {
                 "settings": [
                     "Automatic Battle",
-                    "Move Selection",
+                    "Smart Battle",
                     "Team Level Gap",
                     "Always Catch Wishlist",
                     "Always Catch: Legendary",
@@ -403,9 +403,6 @@ class SettingsWindow(QMainWindow):
                             "Key for Catching",
                             "Key for Team Cycling",
                             "Key for Opening/Closing Ankimon",
-                            # Kept for the settings-consistency test; it
-                            # mirrors option 1 of Move Selection and the two
-                            # stay in sync on save.
                             "Allow Choosing Moves",
                         ]
                     },
