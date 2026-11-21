@@ -1,6 +1,6 @@
 # Omar's Ankimon additions — install on another PC
 
-Everything here was added to Ankimon on top of **Ankimon 2.5-E** (AnkiWeb code 1908235722):
+Everything here was added to Ankimon **2.5-E** and adapted for **2.5.1-E** (AnkiWeb code 1908235722):
 
 1. **Smart Battle** — Battle settings → *Smart Battle* (on/off). Always uses the strongest move against the current enemy and, at each new wild encounter, sends out the best team member from the Cycle Team rotation. Gives 50% Pokémon and Trainer XP, the same as *Allow Choosing Moves*.
 2. **Team level balancing** — Battle settings → *Team Level Gap* (default 5, 0 = off). With Smart Battle on, only team members within that many levels of the lowest-level member are sent out, so the team levels up together.
@@ -15,10 +15,13 @@ Everything here was added to Ankimon on top of **Ankimon 2.5-E** (AnkiWeb code 1
 - **v3** — GIF sprites raised in the battle window (wild Pokémon +16 px, yours +18 px).
 - **v4** — Per Ankimon team review: Smart Battle is now its own on/off setting (the "Move Selection" setting from v1–v3 is gone and *Allow Choosing Moves* is back as before), Smart Battle gives 50% XP like choosing moves by hand, and the setting descriptions are shorter. New file `functions/smart_battle.py`.
 
+- **v5** — Same features, rebuilt on top of Ankimon **2.5.1-E** (new folder `ankimon_patch_2.5.1-E/`).
+
 ## What's in this folder
 
 | Path | What it is |
 |---|---|
+| `ankimon_patch_2.5.1-E/` | Same as below, but for Ankimon 2.5.1-E. Use this one for 2.5.1-E. |
 | `ankimon_patch_2.5-E/` | Changed Ankimon files, in the same folder layout as the Ankimon add-on folder: `battle_loop.py`, `config.json`, `functions/encounter_functions.py`, `functions/smart_battle.py` (new), `functions/smart_move_selection.py` (new), `functions/smart_team_switch.py` (new), `pyobj/settings.py`, `pyobj/settings_window.py`, `pyobj/test_window.py`, `ankimon_items_web/settings_schema.py`, `lang/setting_name.json`, `lang/setting_description.json`. |
 | `Ankimon_Weakness_Helper.ankiaddon` | The Weakness Helper add-on. Double-click to install. |
 
@@ -34,8 +37,8 @@ Follow these steps on the user's computer. Ask before overwriting anything.
    - If Ankimon is missing, tell the user to install it in Anki first (Tools → Add-ons → Get Add-ons → code `1908235722`), then restart Anki and continue.
 3. **Make sure Anki is closed** before changing files.
 4. **Back up** each file in `1908235722/` that the patch will replace, into `1908235722/user_files/omar_patch_backup/` (same sub-folders).
-5. **If the version is `2.5-E`:** copy everything inside `ankimon_patch_2.5-E/` into `1908235722/`, keeping the sub-folders (`functions/`, `pyobj/`, `lang/`, `ankimon_items_web/`), overwriting the existing files. Three files are brand new: `functions/smart_battle.py`, `functions/smart_move_selection.py` and `functions/smart_team_switch.py`.
-6. **If the version is NOT `2.5-E`:** do not copy the files over blindly — that could undo Ankimon updates. Instead merge the changes: for each patched file, compare it with the installed one and apply only Omar's additions (Smart Battle toggle + 50% XP penalty, Team Level Gap, Ankimon Window GIF setting with the raised GIF positions `_GIF_LIFT = {"enemy": 40, "main": 40}`, and the weakness bars in `pyobj/test_window.py`). The clean, reviewable version of the Smart Auto Battle + level balancing changes is on the `smart-auto-battle` branch of `github.com/MrQuack64/Smart-Auto-Battle-and-Weakness-Helper` (pull request #1075 on `h0tp-ftw/ankimon`). If Ankimon already has a *Smart Battle* setting, the feature has been merged officially and no patch is needed for it.
+5. **If the version is `2.5-E` or `2.5.1-E`:** copy everything inside the matching folder (`ankimon_patch_2.5-E/` or `ankimon_patch_2.5.1-E/`) into `1908235722/`, keeping the sub-folders (`functions/`, `pyobj/`, `lang/`, `ankimon_items_web/`), overwriting the existing files. Three files are brand new: `functions/smart_battle.py`, `functions/smart_move_selection.py` and `functions/smart_team_switch.py`.
+6. **If the version is something else:** do not copy the files over blindly — that could undo Ankimon updates. Instead merge the changes: for each patched file, compare it with the installed one and apply only Omar's additions (Smart Battle toggle + 50% XP penalty, Team Level Gap, Ankimon Window GIF setting with the raised GIF positions `_GIF_LIFT = {"enemy": 40, "main": 40}`, and the weakness bars in `pyobj/test_window.py`). The clean, reviewable version of the Smart Auto Battle + level balancing changes is on the `smart-auto-battle` branch of `github.com/MrQuack64/Smart-Auto-Battle-and-Weakness-Helper` (pull request #1075 on `h0tp-ftw/ankimon`). If Ankimon already has a *Smart Battle* setting, the feature has been merged officially and no patch is needed for it.
 7. **Install the Weakness Helper:** copy `__init__.py` and `manifest.json` from `Ankimon_Weakness_Helper.ankiaddon` (it's a zip) into a new folder `addons21/ankimon_weakness_helper/`, or have the user double-click the `.ankiaddon` file with Anki open.
 8. **Restart Anki**, then in Ankimon's settings turn on *Smart Battle*, check *Team Level Gap* (default 5), and turn on *Ankimon Window Sprites as GIF* if wanted.
 9. Never touch `1908235722/user_files/` except for the backup folder — it holds the user's save.
@@ -46,4 +49,4 @@ Copy the files from `1908235722/user_files/omar_patch_backup/` back into `190823
 
 ## Note about Ankimon updates
 
-Until these changes are merged into official Ankimon, an Ankimon update from AnkiWeb will replace the patched files and the additions will disappear. If that happens, run these steps again (step 6 if the version changed).
+Until these changes are merged into official Ankimon, an Ankimon update from AnkiWeb will replace the patched files and the additions will disappear. If that happens, run these steps again (step 6 if the version is new).
